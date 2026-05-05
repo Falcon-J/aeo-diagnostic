@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { ActionItems } from '@/components/ActionItems'
 import { EngineCard } from '@/components/EngineCard'
 import { OverallScore } from '@/components/OverallScore'
+import { ProgressBar } from '@/components/ProgressBar'
 import type { DiagnosticResult } from '@/types'
 
 const EXAMPLES = [
@@ -41,6 +42,7 @@ export default function Home() {
   const [productName, setProductName] = useState('')
   const [brandName, setBrandName] = useState('')
   const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState({ current: 0, total: 3, message: '' })
   const [result, setResult] = useState<DiagnosticResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [providers, setProviders] = useState<ProviderStatus[]>(DEFAULT_PROVIDERS)
@@ -57,6 +59,7 @@ export default function Home() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setProgress({ current: 0, total: 3, message: 'Starting analysis...' })
 
     try {
       const response = await fetch('/api/analyze', {
@@ -71,8 +74,10 @@ export default function Home() {
       }
 
       setResult(data as DiagnosticResult)
+      setProgress({ current: 3, total: 3, message: 'Analysis complete!' })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Something went wrong')
+      setProgress({ current: 0, total: 3, message: 'Error occurred' })
     } finally {
       setLoading(false)
     }
@@ -173,12 +178,15 @@ export default function Home() {
         {error && <div className="alert">{error}</div>}
 
         {loading && (
-          <div className="loading-grid">
-            <div className="skeleton skeleton-large" />
-            <div className="skeleton" />
-            <div className="skeleton" />
-            <div className="skeleton" />
-          </div>
+          <>
+            <ProgressBar current={progress.current} total={progress.total} message={progress.message} />
+            <div className="loading-grid">
+              <div className="skeleton skeleton-large" />
+              <div className="skeleton" />
+              <div className="skeleton" />
+              <div className="skeleton" />
+            </div>
+          </>
         )}
 
         {result && (

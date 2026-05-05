@@ -229,6 +229,67 @@ async function queryOpenRouter(query: string): Promise<RawEngineResponse> {
   })
 }
 
+async function analyzeSentimentWithHuggingFace(text: string): Promise<{ label: string; score: number } | null> {
+  const hfKey = getEnv('HUGGINGFACE_API_KEY')
+  if (!hfKey) return null
+
+  try {
+    const response = await fetch(
+      'https://api-inference.huggingface.co/models/distilbert-base-uncased-finetuned-sst-2-english',
+      {
+        headers: { Authorization: `Bearer ${hfKey}` },
+        method: 'POST',
+        body: JSON.stringify({ inputs: text.substring(0, 512) })
+      }
+    )
+
+    if (!response.ok) return null
+
+    const result = (await response.json()) as Array<{ label: string; score: number }> | { error?: string }
+    if (Array.isArray(result) && result.length > 0) {
+      return result[0]
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+async function validateRealSearchRanking(query: string, brandName: string): Promise<{ rank: number | null; found: boolean }> {
+  const braveKey = getEnv('BRAVE_API_KEY')
+  if (!braveKey) return { rank: null, found: false }
+
+  try {
+    const response = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'X-Subscription-Token': braveKey
+        }
+      }
+    )
+
+    if (!response.ok) return { rank: null, found: false }
+
+    const data = (await response.json()) as { web?: Array<{ title: string; description: string; url: string }> }
+    if (!data.web) return { rank: null, found: false }
+
+    const normalizedBrand = normalize(brandName)
+    for (let i = 0; i < data.web.length; i++) {
+      const result = data.web[i]
+      const content = normalize(`${result.title} ${result.description}`)
+      if (content.includes(normalizedBrand)) {
+        return { rank: i + 1, found: true }
+      }
+    }
+
+    return { rank: null, found: false }
+  } catch {
+    return { rank: null, found: false }
+  }
+}
+
 const ENGINE_CONFIG: EngineConfig[] = [
   { engine: 'gemini', label: 'Gemini (Google)', envKey: 'GEMINI_API_KEY', query: queryGemini },
   { engine: 'groq', label: 'Llama (Groq)', envKey: 'GROQ_API_KEY', query: queryGroq },
