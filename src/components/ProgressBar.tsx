@@ -6,6 +6,7 @@ interface ProgressBarProps {
 
 export function ProgressBar({ current, total, message }: ProgressBarProps) {
   const percentage = Math.round((current / total) * 100)
+  const completedCount = Math.round(current)
 
   return (
     <div className="progress-container">
@@ -17,7 +18,7 @@ export function ProgressBar({ current, total, message }: ProgressBarProps) {
         <div className="progress-fill" style={{ width: `${percentage}%` }} />
       </div>
       <p className="progress-meta">
-        {current} of {total} providers queried
+        {completedCount} of {total} providers queried
       </p>
     </div>
   )
