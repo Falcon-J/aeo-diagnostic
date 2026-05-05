@@ -59,15 +59,33 @@ export default function Home() {
     setLoading(true)
     setError(null)
     setResult(null)
-    setProgress({ current: 0, total: 3, message: 'Starting analysis...' })
+    setProgress({ current: 0, total: 3, message: 'Initializing engines...' })
+
+    let progressInterval: ReturnType<typeof setInterval> | undefined
 
     try {
+      // Start animating progress bar smoothly
+      let simulated = 0.3
+      progressInterval = setInterval(() => {
+        simulated += Math.random() * 0.2
+        if (simulated < 2.7) {
+          const engineCount = Math.min(3, Math.floor(simulated / 0.9) + 1)
+          const message =
+            engineCount === 1 ? 'Querying Gemini...' : 
+            engineCount === 2 ? 'Querying Groq...' :
+            'Querying OpenRouter...'
+          setProgress({ current: simulated, total: 3, message })
+        }
+      }, 400)
+
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, productName, brandName })
       })
       const data = await response.json()
+
+      if (progressInterval) clearInterval(progressInterval)
 
       if (!response.ok) {
         throw new Error(data.error ?? 'Request failed')
@@ -76,10 +94,12 @@ export default function Home() {
       setResult(data as DiagnosticResult)
       setProgress({ current: 3, total: 3, message: 'Analysis complete!' })
     } catch (caught) {
+      if (progressInterval) clearInterval(progressInterval)
       setError(caught instanceof Error ? caught.message : 'Something went wrong')
       setProgress({ current: 0, total: 3, message: 'Error occurred' })
     } finally {
       setLoading(false)
+      if (progressInterval) clearInterval(progressInterval)
     }
   }
 

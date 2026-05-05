@@ -256,29 +256,29 @@ async function analyzeSentimentWithHuggingFace(text: string): Promise<{ label: s
 }
 
 async function validateRealSearchRanking(query: string, brandName: string): Promise<{ rank: number | null; found: boolean }> {
-  const braveKey = getEnv('BRAVE_API_KEY')
-  if (!braveKey) return { rank: null, found: false }
-
   try {
+    // DuckDuckGo API - no authentication required
     const response = await fetch(
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10`,
-      {
-        headers: {
-          'Accept': 'application/json',
-          'X-Subscription-Token': braveKey
-        }
-      }
+      `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1`
     )
 
     if (!response.ok) return { rank: null, found: false }
 
-    const data = (await response.json()) as { web?: Array<{ title: string; description: string; url: string }> }
-    if (!data.web) return { rank: null, found: false }
+    const data = (await response.json()) as { 
+      Results?: Array<{ FirstURL: string; Text: string; Title: string }>
+      RelatedTopics?: Array<{ FirstURL?: string; Text?: string; Title?: string }>
+    }
+    
+    if (!data.Results || data.Results.length === 0) {
+      return { rank: null, found: false }
+    }
 
     const normalizedBrand = normalize(brandName)
-    for (let i = 0; i < data.web.length; i++) {
-      const result = data.web[i]
-      const content = normalize(`${result.title} ${result.description}`)
+    const results = data.Results || []
+    
+    for (let i = 0; i < results.length && i < 10; i++) {
+      const result = results[i]
+      const content = normalize(`${result.Title || ''} ${result.Text || ''} ${result.FirstURL || ''}`)
       if (content.includes(normalizedBrand)) {
         return { rank: i + 1, found: true }
       }
@@ -522,7 +522,10 @@ function summarize(overallScore: number | null, brandName: string, completedEngi
   return `${brandName} is mostly absent from completed AI recommendations for this shopper query.${basis}`
 }
 
-export async function runDiagnostic(request: AnalyzeRequest): Promise<DiagnosticResult> {
+export async function runDiagnostic(
+  request: AnalyzeRequest,
+  onProgress?: (completed: number, total: number, currentEngine: string) => void
+): Promise<DiagnosticResult> {
   const { query, productName, brandName } = request
   const enginesToRun = configuredEngines()
 
@@ -530,9 +533,36 @@ export async function runDiagnostic(request: AnalyzeRequest): Promise<Diagnostic
     throw new Error('Configure at least one free provider key in .env.local before running a diagnostic.')
   }
 
-  const settled = await Promise.allSettled(enginesToRun.map((config) => config.query(query)))
+  // Use Promise.allSettled to run all engines in parallel
+  // but we'll track completion as each one finishes
+  const queryPromises = enginesToRun.map((config, index) => 
+    config.query(query).then(
+      (value) => {
+        // On each completion, report progress
+        onProgress?.(index + 1, enginesToRun.length, config.label)
+        return { status: 'fulfilled' as const, value, index }
+      },
+      (reason) => {
+        // On each failure, still report progress
+        onProgress?.(index + 1, enginesToRun.length, config.label)
+        return { status: 'rejected' as const, reason, index }
+      }
+    )
+  )
 
-  const engines = settled.map((result, index) => {
+  const results = await Promise.all(queryPromises)
+  
+  // Sort back to original order
+  const settledResults = Array(results.length) as Array<PromiseSettledResult<RawEngineResponse>>
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      settledResults[result.index] = { status: 'fulfilled', value: result.value }
+    } else {
+      settledResults[result.index] = { status: 'rejected', reason: result.reason }
+    }
+  }
+
+  const engines = settledResults.map((result, index) => {
     const config = enginesToRun[index]
     if (result.status === 'fulfilled') {
       const analyzed = analyzeEngineResponse(
